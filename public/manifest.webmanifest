@@ -1,6 +1,6 @@
 {
-  "name": "Graft - Craft Document Graph",
-  "short_name": "Graft",
+  "name": "hanjun craft graph view",
+  "short_name": "hanjun craft graph view",
   "description": "Visualize your Craft document connections as an interactive graph",
   "icons": [
     {

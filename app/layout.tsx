@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Graft - Craft Document Graph",
+  title: "hanjun craft graph view",
   description: "Visualize your Craft document connections as an interactive graph",
   manifest: "/manifest.webmanifest",
   themeColor: "#FCC800",
@@ -48,7 +48,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Graft",
+    title: "hanjun craft graph view",
   },
   other: {
     "msapplication-TileColor": "#FCC800",
@@ -102,7 +102,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#FCC800" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="Graft" />
+        <meta name="apple-mobile-web-app-title" content="hanjun craft graph view" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}

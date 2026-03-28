@@ -60,10 +60,16 @@ export function Header() {
               d="M18 16v.01M6 16v.01M12 5v.01M12 12v.01M12 1a4 4 0 0 1 2.001 7.464l.001.072a4 4 0 0 1 1.987 3.758l.22.128a4 4 0 0 1 1.591-.417L18 12a4 4 0 1 1-3.994 3.77l-.28-.16c-.522.25-1.108.39-1.726.39c-.619 0-1.205-.14-1.728-.391l-.279.16L10 16a4 4 0 1 1-2.212-3.579l.222-.129a4 4 0 0 1 1.988-3.756L10 8.465A4 4 0 0 1 8.005 5.2L8 5a4 4 0 0 1 4-4"
             />
           </svg>
-          <span className="font-semibold text-sm">Graft Docs</span>
+          <span className="font-semibold text-sm">hanjun craft graph view</span>
         </div>
         
         <div className="flex items-center gap-4">
+          <a
+            href="/research"
+            className="text-xs text-foreground hover:text-primary transition-colors underline decoration-dotted underline-offset-2"
+          >
+            research
+          </a>
           <a
             href="https://1ar.io/tools/graft"
             target="_blank"
