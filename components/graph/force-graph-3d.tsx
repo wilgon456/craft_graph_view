@@ -1,0 +1,684 @@
+"use client"
+
+import * as React from "react"
+import dynamic from "next/dynamic"
+import type { GraphData, GraphNode, GraphLink } from "@/lib/graph"
+import {
+  isLinkHighlighted as checkLinkHighlighted,
+} from "@/lib/graph/interaction"
+
+const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), {
+  ssr: false,
+})
+
+type ThemeMode = "light" | "dark"
+type ThemeColors = {
+  background: string
+  link: string
+  linkHighlight: string
+  node: string
+  nodeHighlight: string
+}
+
+const LIGHT_THEME: ThemeColors = {
+  background: "#ffffff",
+  link: "#cbd5e1",
+  linkHighlight: "#1e293b",
+  node: "#9ca3af",
+  nodeHighlight: "#fbbf24",
+}
+
+const DARK_THEME: ThemeColors = {
+  background: "#020617",
+  link: "#475569",
+  linkHighlight: "#64748b",
+  node: "#6b7280",
+  nodeHighlight: "#f59e0b",
+}
+
+const THEME_EVENT = "graft:theme-change"
+
+// custom boundary force that pulls nodes inward when they exceed max radius (3D version)
+function createBoundaryForce3D(boundaryRadius: number) {
+  let nodes: any[] = []
+
+  function force() {
+    for (const node of nodes) {
+      const dist = Math.sqrt((node.x || 0) ** 2 + (node.y || 0) ** 2 + (node.z || 0) ** 2)
+      if (dist > boundaryRadius) {
+        // push toward center, strength increases with distance
+        const k = (dist - boundaryRadius) * 0.01
+        node.vx -= (node.x / dist) * k
+        node.vy -= (node.y / dist) * k
+        node.vz -= (node.z / dist) * k
+      }
+    }
+  }
+
+  force.initialize = (n: any[]) => { nodes = n }
+  return force
+}
+
+const getInitialTheme = (): ThemeMode => {
+  if (typeof document === "undefined") return "light"
+  return document.documentElement.classList.contains("dark") ? "dark" : "light"
+}
+
+const getResolvedBackground = () => {
+  if (typeof document === "undefined") return null
+  const raw = getComputedStyle(document.body).getPropertyValue("background-color").trim()
+  if (!raw) return null
+  const isCssColor = /^#|^rgb|^hsl/i.test(raw)
+  return isCssColor ? raw : null
+}
+
+interface ForceGraph3DProps {
+  data: GraphData
+  onNodeClick?: (node: GraphNode) => void
+  onBackgroundClick?: () => void
+  selectedNode?: GraphNode | null
+  width?: number
+  height?: number
+  isOrbiting?: boolean
+  orbitSpeed?: number
+  newYearMode?: boolean
+  bloomMode?: boolean
+  showLabels?: boolean
+}
+
+export interface ForceGraph3DRef {
+  recenter: () => void
+}
+
+interface InternalGraphData {
+  nodes: (GraphNode & { x?: number; y?: number; z?: number; vx?: number; vy?: number; vz?: number })[]
+  links: GraphLink[]
+}
+
+export const ForceGraph3DComponent = React.forwardRef<ForceGraph3DRef, ForceGraph3DProps>(
+  ({ data, onNodeClick, onBackgroundClick, selectedNode, width, height, isOrbiting = false, orbitSpeed = 1, newYearMode = false, bloomMode = false, showLabels = false }, ref) => {
+  const graphRef = React.useRef<any>(null)
+  const [theme, setTheme] = React.useState<ThemeMode>(() => getInitialTheme())
+  const [hoveredNode, setHoveredNode] = React.useState<GraphNode | null>(null)
+  
+  const stableDataRef = React.useRef<InternalGraphData>({ nodes: [], links: [] })
+  const nodeMapRef = React.useRef<Map<string, any>>(new Map())
+  const linkSetRef = React.useRef<Set<string>>(new Set())
+  const [graphDataState, setGraphDataState] = React.useState<InternalGraphData>({ nodes: [], links: [] })
+  const spriteMapRef = React.useRef<Map<string, any>>(new Map())
+  const [SpriteText, setSpriteText] = React.useState<any>(null)
+  const bloomPassRef = React.useRef<any>(null)
+  const UnrealBloomPassRef = React.useRef<any>(null)
+  const orbitAngleRef = React.useRef<number>(0)
+
+  // Calculate ranking-based bloom colors for balanced distribution
+  const bloomColorMap = React.useMemo(() => {
+    const colorMap = new Map<string, string>();
+
+    if (!graphDataState.nodes.length) {
+      return colorMap;
+    }
+
+    // Get document nodes only (exclude tags/folders)
+    const documentNodes = graphDataState.nodes.filter(n => n.type === 'document' || n.type === 'block');
+    if (!documentNodes.length) {
+      return colorMap;
+    }
+
+    // Sort nodes by linkCount to determine ranking
+    const sorted = [...documentNodes].sort((a, b) => (a.linkCount || 0) - (b.linkCount || 0));
+
+    const colors = ['#a855f7', '#1e40af', '#60a5fa', '#34d399', '#f97316', '#ef4444'];
+    const nodesPerColor = Math.ceil(sorted.length / 6);
+
+    // Assign colors based on ranking position
+    sorted.forEach((node, index) => {
+      const colorIndex = Math.min(Math.floor(index / nodesPerColor), 5);
+      colorMap.set(node.id, colors[colorIndex]);
+    });
+
+    return colorMap;
+  }, [graphDataState.nodes]);
+
+  const getBloomNodeColor = React.useCallback((nodeId: string): string => {
+    return bloomColorMap.get(nodeId) || '#ef4444'; // Default to red if not found
+  }, [bloomColorMap])
+
+  // Load SpriteText and UnrealBloomPass dynamically (pre-load for smooth transitions)
+  React.useEffect(() => {
+    if (typeof window !== "undefined") {
+      import("three-spritetext").then((module) => {
+        setSpriteText(() => module.default)
+      })
+      
+      // Pre-load UnrealBloomPass to prevent flash when enabling bloom
+      import("three/examples/jsm/postprocessing/UnrealBloomPass.js").then((module: any) => {
+        UnrealBloomPassRef.current = module.UnrealBloomPass
+      }).catch((error) => {
+        console.error("Failed to load UnrealBloomPass:", error)
+      })
+    }
+  }, [])
+  
+  // Update stable data incrementally
+  React.useEffect(() => {
+    const currentNodeMap = nodeMapRef.current
+    const currentLinkSet = linkSetRef.current
+    const stableData = stableDataRef.current
+    
+    const incomingNodeIds = new Set(data.nodes.map(n => n.id))
+    
+    for (const node of data.nodes) {
+      if (!currentNodeMap.has(node.id)) {
+        const newNode = { ...node }
+        currentNodeMap.set(node.id, newNode)
+        stableData.nodes.push(newNode)
+      } else {
+        const existingNode = currentNodeMap.get(node.id)
+        existingNode.title = node.title
+        existingNode.linkCount = node.linkCount
+        existingNode.color = node.color
+        existingNode.type = node.type
+      }
+    }
+    
+    stableData.nodes = stableData.nodes.filter(node => {
+      if (!incomingNodeIds.has(node.id)) {
+        currentNodeMap.delete(node.id)
+        return false
+      }
+      return true
+    })
+    
+    const incomingLinkKeys = new Set(data.links.map(l => `${l.source}-${l.target}`))
+    
+    for (const link of data.links) {
+      const linkKey = `${link.source}-${link.target}`
+      if (!currentLinkSet.has(linkKey)) {
+        if (currentNodeMap.has(link.source) && currentNodeMap.has(link.target)) {
+          currentLinkSet.add(linkKey)
+          stableData.links.push({ ...link })
+        }
+      }
+    }
+    
+    stableData.links = stableData.links.filter(link => {
+      const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source
+      const targetId = typeof link.target === 'object' ? (link.target as any).id : link.target
+      const linkKey = `${sourceId}-${targetId}`
+      
+      if (!currentNodeMap.has(sourceId) || !currentNodeMap.has(targetId) || !incomingLinkKeys.has(linkKey)) {
+        currentLinkSet.delete(linkKey)
+        return false
+      }
+      return true
+    })
+    
+    setGraphDataState({
+      nodes: [...stableData.nodes],
+      links: [...stableData.links],
+    })
+  }, [data])
+
+  React.useEffect(() => {
+    if (graphRef.current) {
+      graphRef.current.d3Force("charge").strength(-200)
+      graphRef.current.d3Force("link").distance(100)
+
+      // add boundary force to keep disconnected nodes from drifting too far
+      const nodeCount = graphDataState.nodes.length
+      const boundaryRadius = Math.max(300, Math.sqrt(nodeCount) * 30)
+      graphRef.current.d3Force("boundary", createBoundaryForce3D(boundaryRadius))
+    }
+  }, [graphDataState.nodes.length])
+
+  // Force graph re-render when newYearMode or bloomMode changes to prevent color flash
+  React.useEffect(() => {
+    if (!graphRef.current) return
+    
+    // Force re-render by creating new data reference
+    // This ensures nodeColor function is re-evaluated for all nodes
+    setGraphDataState(prev => ({
+      nodes: [...prev.nodes],
+      links: [...prev.links],
+    }))
+  }, [newYearMode, bloomMode])
+
+  // Setup bloom pass for new year mode or bloom mode - exactly as in the reference example
+  // Reference: https://github.com/vasturiano/react-force-graph/blob/master/example/bloom-effect/index.html
+  React.useEffect(() => {
+    if (!graphRef.current || typeof window === "undefined") return
+
+    const composer = graphRef.current.postProcessingComposer()
+    if (!composer) return
+
+    if (newYearMode || bloomMode) {
+      // Use pre-loaded UnrealBloomPass if available, otherwise load it
+      const setupBloom = (UnrealBloomPass: any) => {
+        if (!graphRef.current) return
+        
+        // If bloom pass already exists, just enable it
+        if (bloomPassRef.current) {
+          bloomPassRef.current.enabled = true
+          return
+        }
+        
+        // Create bloom pass exactly as in reference
+        const bloomPass = new UnrealBloomPass()
+        bloomPass.strength = 4
+        bloomPass.radius = 1
+        bloomPass.threshold = 0
+        
+        composer.addPass(bloomPass)
+        bloomPassRef.current = bloomPass
+      }
+
+      if (UnrealBloomPassRef.current) {
+        // Use pre-loaded module - no async delay
+        setupBloom(UnrealBloomPassRef.current)
+      } else {
+        // Fallback: load if not pre-loaded yet
+        import("three/examples/jsm/postprocessing/UnrealBloomPass.js").then((module: any) => {
+          UnrealBloomPassRef.current = module.UnrealBloomPass
+          setupBloom(module.UnrealBloomPass)
+        }).catch((error) => {
+          console.error("Failed to load UnrealBloomPass:", error)
+        })
+      }
+      
+      // Ensure all existing sprites are excluded from bloom
+      spriteMapRef.current.forEach((sprite) => {
+        sprite.layers.set(1) // Move sprites to layer 1
+        // Also ensure material doesn't contribute to bloom
+        if (sprite.material) {
+          if (sprite.material.emissive) {
+            sprite.material.emissive.setHex(0x000000)
+          }
+          if (sprite.material.emissiveIntensity !== undefined) {
+            sprite.material.emissiveIntensity = 0
+          }
+        }
+      })
+    } else {
+      // Disable bloom pass instead of removing it to prevent flash
+      if (bloomPassRef.current) {
+        bloomPassRef.current.enabled = false
+      }
+      
+      // Reset sprite layers to default (layer 0)
+      spriteMapRef.current.forEach((sprite) => {
+        sprite.layers.set(0)
+      })
+    }
+  }, [newYearMode, bloomMode])
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const updateTheme = () => setTheme(getInitialTheme())
+    const handleThemeEvent = (event: Event) => {
+      const detail = (event as CustomEvent<ThemeMode>).detail
+      if (detail) {
+        setTheme(detail)
+      } else {
+        updateTheme()
+      }
+    }
+
+    updateTheme()
+    const observer = new MutationObserver(updateTheme)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
+    window.addEventListener(THEME_EVENT, handleThemeEvent as EventListener)
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener(THEME_EVENT, handleThemeEvent as EventListener)
+    }
+  }, [])
+
+  const colors = React.useMemo(() => {
+    const base = theme === "dark" ? DARK_THEME : LIGHT_THEME
+    const resolvedBackground = getResolvedBackground()
+    return { ...base, background: resolvedBackground ?? base.background }
+  }, [theme])
+
+  const activeNodeId = (selectedNode || hoveredNode)?.id ?? null
+
+  const getNodeColor = React.useCallback((node: any) => {
+    if (node.type === 'tag' || node.type === 'folder') {
+      return node.color || colors.node
+    }
+
+    if (bloomMode) return getBloomNodeColor(node.id)
+    if (newYearMode) return node.color || colors.node
+
+    if (!activeNodeId) return colors.node
+    if (node.id === activeNodeId) return colors.nodeHighlight
+    return colors.node
+  }, [bloomMode, newYearMode, colors, activeNodeId, getBloomNodeColor])
+
+  const getLinkColor = React.useCallback((link: any) => {
+    if (!activeNodeId) return colors.link
+    if (checkLinkHighlighted(link, activeNodeId)) return colors.linkHighlight
+    return colors.link
+  }, [activeNodeId, colors.link, colors.linkHighlight])
+
+  const getLinkWidth = React.useCallback((link: any) => {
+    if (!activeNodeId) return 1
+    return checkLinkHighlighted(link, activeNodeId) ? 2 : 1
+  }, [activeNodeId])
+
+  // throttled hover — limit state updates to once per 50ms
+  const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingHoverRef = React.useRef<GraphNode | null>(null)
+  const handleNodeHover = React.useCallback((node: any) => {
+    pendingHoverRef.current = node
+    if (hoverTimerRef.current === null) {
+      hoverTimerRef.current = setTimeout(() => {
+        setHoveredNode(pendingHoverRef.current)
+        hoverTimerRef.current = null
+      }, 50)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current !== null) clearTimeout(hoverTimerRef.current)
+    }
+  }, [])
+
+  const handleNodeClick = React.useCallback((node: any) => {
+    onNodeClick?.(node as GraphNode)
+  }, [onNodeClick])
+
+  const handleBackgroundClick = React.useCallback(() => {
+    onBackgroundClick?.()
+  }, [onBackgroundClick])
+
+  // Create 3D text sprites using SpriteText
+  const nodeThreeObject = React.useCallback((node: any) => {
+    // Don't create sprites at all when labels are hidden
+    if (!showLabels) return undefined
+    if (typeof window === "undefined" || !SpriteText) return undefined
+
+    const sprite = new SpriteText(node.title)
+    // Tags and folders are 2x size in 3D
+    const nodeSize = (node.type === 'tag' || node.type === 'folder') ? 2 : 1
+
+    // Use appropriate color based on mode - will be updated by effect
+    if (bloomMode) {
+      sprite.color = getBloomNodeColor(node.id)
+    } else if (newYearMode) {
+      sprite.color = node.color || colors.node
+    } else {
+      sprite.color = colors.node
+    }
+    sprite.textHeight = 8 * nodeSize
+    sprite.center.y = -0.6 * nodeSize
+    // Remove background rectangles - SpriteText should accept null or false
+    sprite.backgroundColor = null
+    if (sprite.material) {
+      sprite.material.transparent = true
+      sprite.material.opacity = 1
+      sprite.material.depthWrite = false
+    }
+
+    // Exclude labels from bloom effect by assigning them to layer 1
+    // and ensuring material doesn't contribute to bloom
+    if (bloomMode || newYearMode) {
+      sprite.layers.set(1)
+      if (sprite.material) {
+        if (sprite.material.emissive) {
+          sprite.material.emissive.setHex(0x000000)
+        }
+        if (sprite.material.emissiveIntensity !== undefined) {
+          sprite.material.emissiveIntensity = 0
+        }
+      }
+    }
+
+    // Store reference for updates
+    spriteMapRef.current.set(node.id, sprite)
+
+    return sprite
+  }, [colors, newYearMode, bloomMode, getBloomNodeColor, showLabels])
+
+  // Update sprite colors when theme or selection changes
+  // Also clean up sprites when showLabels is disabled
+  React.useEffect(() => {
+    if (!showLabels) {
+      // Remove all sprites when labels are hidden
+      spriteMapRef.current.forEach((sprite) => {
+        if (sprite.parent) {
+          sprite.parent.remove(sprite)
+        }
+      })
+      spriteMapRef.current.clear()
+      // Don't call setGraphDataState here - it causes infinite loop
+      // The graph will automatically update when nodeThreeObject returns undefined
+      return
+    }
+    
+    // Only update existing sprites - use stableDataRef to avoid dependency on graphDataState.nodes
+    spriteMapRef.current.forEach((sprite, nodeId) => {
+      const node = stableDataRef.current.nodes.find(n => n.id === nodeId)
+      if (node) {
+        sprite.color = getNodeColor(node)
+        sprite.material.opacity = 1
+        // Ensure no background is set
+        sprite.backgroundColor = null
+        
+        // Exclude labels from bloom effect by assigning them to layer 1
+        // and ensuring material doesn't contribute to bloom
+        if (bloomMode || newYearMode) {
+          sprite.layers.set(1)
+          if (sprite.material) {
+            if (sprite.material.emissive) {
+              sprite.material.emissive.setHex(0x000000)
+            }
+            if (sprite.material.emissiveIntensity !== undefined) {
+              sprite.material.emissiveIntensity = 0
+            }
+          }
+        } else {
+          sprite.layers.set(0)
+        }
+      }
+    })
+  }, [theme, hoveredNode, selectedNode, colors, newYearMode, bloomMode, getNodeColor, showLabels])
+
+  // Clean up sprites when nodes are removed or when showLabels is disabled
+  React.useEffect(() => {
+    if (!showLabels) {
+      // Sprites are already cleaned up in the other effect
+      return
+    }
+    
+    const currentNodeIds = new Set(graphDataState.nodes.map(n => n.id))
+    const spritesToRemove: string[] = []
+    
+    spriteMapRef.current.forEach((sprite, nodeId) => {
+      if (!currentNodeIds.has(nodeId)) {
+        // Remove sprite from scene if it has a parent
+        if (sprite.parent) {
+          sprite.parent.remove(sprite)
+        }
+        spritesToRemove.push(nodeId)
+      }
+    })
+    
+    spritesToRemove.forEach(nodeId => {
+      spriteMapRef.current.delete(nodeId)
+    })
+  }, [graphDataState.nodes, showLabels])
+
+
+  // Expose recenter method via ref
+  React.useImperativeHandle(ref, () => ({
+    recenter: () => {
+      if (!graphRef.current || graphDataState.nodes.length === 0) return
+      
+      // Calculate bounding box of all nodes
+      let minX = Infinity, maxX = -Infinity
+      let minY = Infinity, maxY = -Infinity
+      let minZ = Infinity, maxZ = -Infinity
+      
+      graphDataState.nodes.forEach((node: any) => {
+        if (node.x !== undefined) {
+          minX = Math.min(minX, node.x)
+          maxX = Math.max(maxX, node.x)
+        }
+        if (node.y !== undefined) {
+          minY = Math.min(minY, node.y)
+          maxY = Math.max(maxY, node.y)
+        }
+        if (node.z !== undefined) {
+          minZ = Math.min(minZ, node.z)
+          maxZ = Math.max(maxZ, node.z)
+        }
+      })
+      
+      // If no valid positions, use default
+      if (!isFinite(minX) || !isFinite(maxX)) {
+        graphRef.current.cameraPosition({ z: 1400 })
+        return
+      }
+      
+      // Calculate center and size
+      const centerX = (minX + maxX) / 2
+      const centerY = (minY + maxY) / 2
+      const centerZ = (minZ + maxZ) / 2
+      const sizeX = maxX - minX
+      const sizeY = maxY - minY
+      const sizeZ = maxZ - minZ
+      const maxSize = Math.max(sizeX, sizeY, sizeZ, 100) // Ensure minimum size
+      
+      // Calculate ideal distance based on FOV (default 75 degrees)
+      // Using similar calculation as react-force-graph-3d's zoomToFit
+      const fov = 75
+      const cameraZ = Math.max(maxSize * 1.5, 500)
+      
+      // Position camera to view the entire graph
+      graphRef.current.cameraPosition({
+        x: centerX,
+        y: centerY,
+        z: centerZ + cameraZ
+      })
+      
+      // Also update controls target to look at the center of the graph
+      const controls = graphRef.current.controls()
+      if (controls && controls.target) {
+        controls.target.set(centerX, centerY, centerZ)
+        controls.update()
+      }
+    },
+  }), [graphDataState.nodes])
+
+  // Camera orbit effect - simple and smooth
+  React.useEffect(() => {
+    if (!graphRef.current || !isOrbiting) {
+      // Reset angle when not orbiting
+      orbitAngleRef.current = 0
+      return
+    }
+
+    const controls = graphRef.current.controls()
+    if (!controls) return
+    
+    // Save the original enabled state
+    const originalEnabled = controls.enabled
+    
+    let animationFrameId: number
+    let distance: number
+    let targetX: number
+    let targetY: number
+    let targetZ: number
+    let cameraY: number
+    
+    // Capture initial state once
+    const camera = graphRef.current.camera()
+    if (camera && controls.target) {
+      const target = controls.target
+      targetX = target.x
+      targetY = target.y
+      targetZ = target.z
+      
+      const dx = camera.position.x - targetX
+      const dy = camera.position.y - targetY
+      const dz = camera.position.z - targetZ
+      distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
+      cameraY = camera.position.y
+    }
+    
+    const animate = () => {
+      if (!graphRef.current) return
+      
+      const camera = graphRef.current.camera()
+      
+      if (!camera) return
+      
+      // Orbit around the fixed target point
+      const newX = targetX + distance * Math.sin(orbitAngleRef.current)
+      const newZ = targetZ + distance * Math.cos(orbitAngleRef.current)
+      
+      // Update camera position while maintaining fixed Y position and distance
+      camera.position.x = newX
+      camera.position.y = cameraY
+      camera.position.z = newZ
+      camera.lookAt(targetX, targetY, targetZ)
+      
+      // Increment angle based on orbit speed
+      orbitAngleRef.current += (Math.PI / 300) * orbitSpeed
+      
+      animationFrameId = requestAnimationFrame(animate)
+    }
+    
+    animationFrameId = requestAnimationFrame(animate)
+    
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId)
+      }
+      // Restore original enabled state
+      if (controls) {
+        controls.enabled = originalEnabled
+      }
+    }
+  }, [isOrbiting, orbitSpeed])
+
+  return (
+    <ForceGraph3D
+      ref={graphRef}
+      graphData={graphDataState}
+      width={width}
+      height={height}
+      nodeId="id"
+      linkSource="source"
+      linkTarget="target"
+      nodeLabel={(node: any) => node.title}
+      nodeColor={getNodeColor}
+      nodeVal={(node: any) => {
+        // Tags and folders are 2x size in 3D
+        if (node.type === 'tag' || node.type === 'folder') return 2;
+        return 1;
+      }}
+      nodeThreeObject={showLabels ? nodeThreeObject : undefined}
+      nodeThreeObjectExtend={true}
+      linkColor={getLinkColor}
+      linkWidth={getLinkWidth}
+      linkDirectionalParticles={0}
+      onNodeHover={handleNodeHover}
+      onNodeClick={handleNodeClick}
+      onBackgroundClick={handleBackgroundClick}
+      backgroundColor={newYearMode || bloomMode ? "#000003" : colors.background}
+      cooldownTicks={100}
+      warmupTicks={50}
+      enableNodeDrag={!isOrbiting}
+      enableNavigationControls={true}
+      showNavInfo={false}
+    />
+  )
+})
+
+ForceGraph3DComponent.displayName = "ForceGraph3DComponent"
+
