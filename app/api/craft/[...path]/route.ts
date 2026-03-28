@@ -16,6 +16,10 @@ const ALLOWED_ENDPOINTS = new Set([
   'document-search',
   'documents-search',
 ])
+const WRITE_ALLOWED_ENDPOINTS = new Set([
+  'documents',
+  'blocks',
+])
 
 const proxyRateLimiter = new Map<string, { count: number; resetAt: number }>()
 
@@ -127,18 +131,12 @@ export async function GET(
   }
 }
 
-export async function PUT() {
-  return Response.json(
-    { error: 'Method not allowed. Proxy is read-only.' },
-    { status: 405 }
-  )
+export async function PUT(request: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  return handleWrite('PUT', request, ctx)
 }
 
-export async function POST() {
-  return Response.json(
-    { error: 'Method not allowed. Proxy is read-only.' },
-    { status: 405 }
-  )
+export async function POST(request: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  return handleWrite('POST', request, ctx)
 }
 
 export async function DELETE() {
@@ -146,4 +144,81 @@ export async function DELETE() {
     { error: 'Method not allowed. Proxy is read-only.' },
     { status: 405 }
   )
+}
+
+async function handleWrite(
+  method: 'POST' | 'PUT',
+  request?: NextRequest,
+  ctx?: { params: Promise<{ path: string[] }> }
+) {
+  if (!request || !ctx) {
+    return Response.json(
+      { error: `Method ${method} requires request context` },
+      { status: 400 }
+    )
+  }
+
+  const ip = request.headers.get('x-forwarded-for') || 'unknown'
+  const rateCheck = checkRateLimit(ip)
+  if (!rateCheck.allowed) {
+    return Response.json(
+      { error: `Rate limit exceeded. Try again in ${rateCheck.resetIn} seconds.` },
+      { status: 429, headers: { 'Retry-After': String(rateCheck.resetIn) } }
+    )
+  }
+
+  const credentials = getCredentials(request)
+  if (!credentials) {
+    return Response.json(
+      { error: 'Missing or invalid Craft API credentials' },
+      { status: 401 }
+    )
+  }
+
+  const resolvedParams = await ctx.params
+  const endpoint = resolvedParams.path[0]
+  if (!endpoint || !WRITE_ALLOWED_ENDPOINTS.has(endpoint)) {
+    return Response.json(
+      { error: `Endpoint not allowed for ${method} by proxy policy` },
+      { status: 403 }
+    )
+  }
+
+  const { craftUrl, craftKey } = credentials
+  const url = buildTargetUrl(request, craftUrl, resolvedParams.path)
+
+  try {
+    const body = await request.text()
+    const response = await fetch(url, {
+      method,
+      headers: {
+        'Authorization': `Bearer ${craftKey}`,
+        'Content-Type': 'application/json',
+      },
+      body,
+    })
+
+    const responseText = await response.text()
+    if (!response.ok) {
+      console.error(`Craft API ${method} error:`, response.status, responseText)
+      return Response.json(
+        { error: `Craft API ${method} error: ${response.statusText}`, details: responseText },
+        { status: response.status }
+      )
+    }
+
+    return new Response(responseText, {
+      status: response.status,
+      headers: {
+        'Cache-Control': 'no-store',
+        'Content-Type': response.headers.get('content-type') || 'application/json',
+      },
+    })
+  } catch (error) {
+    console.error(`Craft API ${method} proxy error:`, error)
+    return Response.json(
+      { error: `Failed to ${method} to Craft API`, details: String(error) },
+      { status: 500 }
+    )
+  }
 }
