@@ -129,7 +129,7 @@ export function buildGraphData(
   blocksMap: Map<string, CraftBlock[]>,
   options?: { includeTags?: boolean; includeFolders?: boolean }
 ): GraphData {
-  const { includeTags = false, includeFolders = false } = options || {};
+  const { includeTags = false } = options || {};
   const nodesMap = new Map<string, GraphNode>();
   const linksMap = new Map<string, Set<string>>();
 

@@ -2,12 +2,10 @@
 
 import * as React from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { track } from "@vercel/analytics/react"
 import { 
   IconMoon, 
   IconRefresh, 
   IconSun, 
-  IconUnlink,
   IconMenu2,
   IconLayoutSidebarLeftCollapse,
   IconPlug,
@@ -34,23 +32,15 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Slider } from "@/components/ui/slider"
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
 import type { GraphData } from "@/lib/graph"
-import { createFetcher, getGraphStats, clearAllData, clearCache } from "@/lib/graph"
+import { getGraphStats, clearAllData, clearCache } from "@/lib/graph"
+import {
+  DEFAULT_CRAFT_API_URL,
+  clearStoredCraftConnection,
+  getCraftApiUrl,
+  persistCraftApiUrl,
+} from "@/lib/craft-config"
 
-// Storage keys for user preferences and credentials
-const STORAGE_KEY_URL = "craft_api_url"
-const STORAGE_KEY_KEY = "craft_api_key"
 const STORAGE_KEY_THEME = "graft_theme"
 
 // Graph visualization settings (persisted in page.tsx):
@@ -104,42 +94,30 @@ type PanelType = 'connect' | 'stats' | 'search' | 'customize' | null
 // Connect Panel Component
 interface ConnectPanelProps {
   apiUrl: string
-  apiKey: string
-  isConnecting: boolean
   isLoading: boolean
   isRefreshing?: boolean
-  formError: string | null
   error?: string | null
   progress: ProgressState
-  onApiUrlChange: (value: string) => void
-  onApiKeyChange: (value: string) => void
-  onConnect: (event: React.FormEvent<HTMLFormElement>) => void
-  onDisconnect: () => void
   onClearCache: () => void
+  onResetLocalData: () => void
   onCancelLoading?: () => void
 }
 
 function ConnectPanel({
   apiUrl,
-  apiKey,
-  isConnecting,
   isLoading,
   isRefreshing,
-  formError,
   error,
   progress,
-  onApiUrlChange,
-  onApiKeyChange,
-  onConnect,
-  onDisconnect,
   onClearCache,
+  onResetLocalData,
   onCancelLoading
 }: ConnectPanelProps) {
   return (
-    <form onSubmit={onConnect} className="space-y-4">
+    <div className="space-y-4">
       <Accordion>
         <AccordionItem value="how-it-works">
-          <AccordionTrigger>What's Graft?</AccordionTrigger>
+          <AccordionTrigger>What&apos;s Graft?</AccordionTrigger>
           <AccordionContent>
             <div className="space-y-4 text-xs">
               <p>
@@ -147,29 +125,19 @@ function ConnectPanel({
               </p>
 
               <div>
-                <p className="font-medium mb-2">What you need:</p>
+                <p className="font-medium mb-2">Connection</p>
                 <ul className="list-disc list-inside space-y-1.5 ml-2">
-                  <li><strong>API URL</strong></li>
-                  <li><strong>API Key</strong></li>
+                  <li><strong>Fixed API URL</strong></li>
+                  <li><strong>No API key required</strong></li>
                 </ul>
                 <p className="mt-2 text-muted-foreground">
-                  Create one in Craft → <a
-                    href="https://www.craft.do/imagine"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline decoration-dotted underline-offset-2 hover:text-foreground transition-colors"
-                  >
-                    Imagine
-                  </a>
-                </p>
-                <p className="mt-2 text-muted-foreground">
-                  Graft needs write access only for bulk tag renaming.
+                  This workspace is pinned to a shared Craft endpoint, so the graph loads directly without asking for a personal API key.
                 </p>
               </div>
 
               <div className="pt-3 border-t border-border">
                 <p className="text-muted-foreground">
-                  Your API credentials are stored locally in your browser only. They are passed via headers through a proxy to avoid CORS issues, but <strong className="text-foreground">never logged or stored on the server</strong>.
+                  Requests still go through the local proxy to avoid CORS issues. If an old API key is still present in local storage, it will be forwarded, but the UI no longer requires one.
                 </p>
               </div>
 
@@ -186,80 +154,30 @@ function ConnectPanel({
         </AccordionItem>
       </Accordion>
 
-      <Field>
-        <FieldLabel htmlFor="graph-api-url">API URL</FieldLabel>
-        <Input
-          id="graph-api-url"
-          type="url"
-          placeholder="https://connect.craft.do/links/ID/api/v1"
-          value={apiUrl}
-          onChange={(event) => onApiUrlChange(event.target.value)}
-          required
-          disabled={isConnecting}
-        />
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="graph-api-key">API Key</FieldLabel>
-        <Input
-          id="graph-api-key"
-          type="password"
-          placeholder="Your Craft API key"
-          value={apiKey}
-          onChange={(event) => onApiKeyChange(event.target.value)}
-          required
-          disabled={isConnecting}
-        />
-      </Field>
+      <div className="rounded-2xl border bg-muted/30 p-3">
+        <p className="text-xs font-medium text-foreground">Active Craft API URL</p>
+        <code className="mt-2 block break-all text-xs text-muted-foreground">{apiUrl}</code>
+      </div>
 
-      {formError ? (
-        <p className="text-sm text-destructive">{formError}</p>
-      ) : (
-        error && !isConnecting && (
-          <p className="text-sm text-destructive">{error}</p>
-        )
-      )}
-
-      <Button type="submit" disabled={isConnecting} className="w-full">
-        {isConnecting ? "Connecting..." : "Save connection"}
-      </Button>
-
-      <AlertDialog>
-        <AlertDialogTrigger asChild>
-          <Button 
-            variant="outline" 
-            className="w-full" 
-            type="button"
-            disabled={!(apiUrl || apiKey)}
-          >
-            <IconUnlink className="mr-2 h-4 w-4" />
-            Remove connection
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove connection?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will clear your API credentials, cached graph data, and IndexedDB storage. 
-              You'll need to reconnect to view your graph again.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={onDisconnect}>
-              Remove connection
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {error && <p className="text-sm text-destructive">{error}</p>}
 
       <Button 
         variant="outline" 
         className="w-full" 
         type="button"
         onClick={onClearCache}
-        disabled={!apiUrl || isConnecting || isLoading}
+        disabled={!apiUrl || isLoading}
       >
         Clear cache
+      </Button>
+
+      <Button
+        variant="outline"
+        className="w-full"
+        type="button"
+        onClick={onResetLocalData}
+      >
+        Reset local data
       </Button>
 
       {(isLoading || isRefreshing) && (
@@ -302,7 +220,7 @@ function ConnectPanel({
           </div>
         </div>
       )}
-    </form>
+    </div>
   )
 }
 
@@ -747,10 +665,7 @@ export function GraphControls({
   onShowFoldersChange
 }: GraphControlsProps) {
   const stats = React.useMemo(() => (graphData ? getGraphStats(graphData) : null), [graphData])
-  const [apiUrl, setApiUrl] = React.useState("")
-  const [apiKey, setApiKey] = React.useState("")
-  const [isConnecting, setIsConnecting] = React.useState(false)
-  const [formError, setFormError] = React.useState<string | null>(null)
+  const [apiUrl, setApiUrl] = React.useState(DEFAULT_CRAFT_API_URL)
   const [isDarkMode, setIsDarkMode] = React.useState(() => {
     if (typeof window === "undefined") return false
     const storedTheme = localStorage.getItem(STORAGE_KEY_THEME) as Theme | null
@@ -776,15 +691,8 @@ export function GraphControls({
   }, [])
 
   React.useEffect(() => {
-    const storedUrl = localStorage.getItem(STORAGE_KEY_URL)
-    const storedKey = localStorage.getItem(STORAGE_KEY_KEY)
-    if (storedUrl) setApiUrl(storedUrl)
-    if (storedKey) setApiKey(storedKey)
-
-    // Show connect panel if no credentials are stored
-    if (!storedUrl && !storedKey) {
-      setActivePanel('connect')
-    }
+    persistCraftApiUrl()
+    setApiUrl(getCraftApiUrl())
 
     const storedTheme = localStorage.getItem(STORAGE_KEY_THEME) as Theme | null
     const theme =
@@ -815,60 +723,16 @@ export function GraphControls({
     onOrbitSpeedChange?.(speed)
   }
 
-  const handleConnect = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setFormError(null)
-    setIsConnecting(true)
-
+  const handleResetLocalData = async () => {
     try {
-      const url = new URL(apiUrl)
-      if (!url.protocol.startsWith("http")) {
-        throw new Error("URL must use HTTP or HTTPS protocol")
-      }
-
-      const fetcher = createFetcher(apiUrl, apiKey)
-      const isConnected = await fetcher.testConnection()
-
-      if (!isConnected) {
-        throw new Error("Failed to connect to Craft API")
-      }
-
-      localStorage.setItem(STORAGE_KEY_URL, apiUrl)
-      localStorage.setItem(STORAGE_KEY_KEY, apiKey)
-      
-      // Track successful connection
-      track("Connection Success", {
-        timestamp: new Date().toISOString()
-      })
-      
-      onReload()
-    } catch (err) {
-      if (err instanceof TypeError) {
-        setFormError("Invalid URL format")
-      } else if (err instanceof Error) {
-        setFormError(err.message)
-      } else {
-        setFormError("Failed to connect to Craft API")
-      }
-    } finally {
-      setIsConnecting(false)
-    }
-  }
-
-  const handleDisconnect = async () => {
-    try {
-      localStorage.removeItem(STORAGE_KEY_URL)
-      localStorage.removeItem(STORAGE_KEY_KEY)
-      
+      clearStoredCraftConnection()
       await clearAllData()
-      
-      setApiUrl("")
-      setApiKey("")
-      setActivePanel("connect")
-      
+
+      persistCraftApiUrl()
+      setApiUrl(DEFAULT_CRAFT_API_URL)
       window.location.reload()
     } catch (error) {
-      console.error("Failed to disconnect:", error)
+      console.error("Failed to reset local data:", error)
     }
   }
 
@@ -1040,18 +904,12 @@ export function GraphControls({
                         {activePanel === 'connect' && (
                           <ConnectPanel
                             apiUrl={apiUrl}
-                            apiKey={apiKey}
-                            isConnecting={isConnecting}
                             isLoading={isLoading}
                             isRefreshing={isRefreshing}
-                            formError={formError}
                             error={error}
                             progress={progress}
-                            onApiUrlChange={setApiUrl}
-                            onApiKeyChange={setApiKey}
-                            onConnect={handleConnect}
-                            onDisconnect={handleDisconnect}
                             onClearCache={handleClearCache}
+                            onResetLocalData={handleResetLocalData}
                             onCancelLoading={handleCancelLoading}
                           />
                         )}

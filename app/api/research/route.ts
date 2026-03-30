@@ -34,15 +34,15 @@ function escapeRegex(input: string): string {
 
 async function craftFetch(
   craftUrl: string,
-  craftKey: string,
+  craftKey: string | undefined,
   endpoint: string,
   init?: RequestInit
 ) {
   const response = await fetch(`${craftUrl}${endpoint}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${craftKey}`,
       'Content-Type': 'application/json',
+      ...(craftKey ? { Authorization: `Bearer ${craftKey}` } : {}),
       ...(init?.headers || {}),
     },
   })
@@ -148,7 +148,7 @@ function extractRootBlockId(blockResponse: unknown): string | null {
 
 async function findDocumentByTitle(
   craftUrl: string,
-  craftKey: string,
+  craftKey: string | undefined,
   title: string
 ): Promise<CraftDocumentItem | null> {
   const regexps = escapeRegex(title)
@@ -166,7 +166,7 @@ async function findDocumentByTitle(
 
 async function createDocument(
   craftUrl: string,
-  craftKey: string,
+  craftKey: string | undefined,
   title: string,
   markdown: string
 ): Promise<CraftDocumentItem | null> {
@@ -200,7 +200,7 @@ async function createDocument(
 
 async function upsertResearchDocument(
   craftUrl: string,
-  craftKey: string,
+  craftKey: string | undefined,
   title: string,
   markdown: string
 ) {
@@ -241,8 +241,8 @@ export async function POST(request: NextRequest) {
     if (!topic) {
       return Response.json({ error: 'topic is required' }, { status: 400 })
     }
-    if (!craftUrl || !craftKey) {
-      return Response.json({ error: 'craftUrl and craftKey are required' }, { status: 400 })
+    if (!craftUrl) {
+      return Response.json({ error: 'craftUrl is required' }, { status: 400 })
     }
     if (!isAllowedCraftUrl(craftUrl)) {
       return Response.json({ error: 'Invalid Craft API URL' }, { status: 400 })

@@ -7,9 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Field, FieldLabel } from "@/components/ui/field"
-
-const STORAGE_KEY_URL = "craft_api_url"
-const STORAGE_KEY_KEY = "craft_api_key"
+import { getCraftApiUrl, getCraftConnection } from "@/lib/craft-config"
 
 interface ResearchResponse {
   ok: boolean
@@ -31,18 +29,15 @@ export default function ResearchPage() {
   const [result, setResult] = React.useState<ResearchResponse | null>(null)
 
   React.useEffect(() => {
-    const apiUrl = localStorage.getItem(STORAGE_KEY_URL)
-    const apiKey = localStorage.getItem(STORAGE_KEY_KEY)
-    setHasConnection(Boolean(apiUrl && apiKey))
+    setHasConnection(Boolean(getCraftApiUrl()))
   }, [])
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!topic.trim()) return
 
-    const craftUrl = localStorage.getItem(STORAGE_KEY_URL) || ""
-    const craftKey = localStorage.getItem(STORAGE_KEY_KEY) || ""
-    if (!craftUrl || !craftKey) {
+    const { apiUrl: craftUrl, apiKey: craftKey } = getCraftConnection()
+    if (!craftUrl) {
       setResult({
         ok: false,
         error: "Craft 연결 정보가 없습니다. 왼쪽 상단 그래프 화면에서 먼저 Save connection 해주세요.",
@@ -62,7 +57,7 @@ export default function ResearchPage() {
         body: JSON.stringify({
           topic: topic.trim(),
           craftUrl,
-          craftKey,
+          ...(craftKey ? { craftKey } : {}),
         }),
       })
 

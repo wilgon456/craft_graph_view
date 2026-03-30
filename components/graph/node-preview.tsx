@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { SumrIcon } from "@/components/ui/sumr-icon"
 import type { GraphNode, GraphData } from "@/lib/graph"
+import { getCraftApiUrl, getCraftConnection } from "@/lib/craft-config"
 import ReactMarkdown from 'react-markdown'
 
 interface NodePreviewProps {
@@ -25,7 +26,7 @@ function getSpaceId(): string | null {
   if (storedSpaceId) return storedSpaceId
   
   // Try to extract from API URL if it contains spaceId
-  const apiUrl = localStorage.getItem("craft_api_url") || ""
+  const apiUrl = getCraftApiUrl()
   if (apiUrl) {
     // Check if spaceId is in the URL path (e.g., /spaces/{spaceId}/...)
     const spaceIdMatch = apiUrl.match(/\/spaces\/([a-f0-9-]+)/i)
@@ -90,11 +91,10 @@ export function NodePreview({ node, graphData, onClose, onNodeSelect, onTagRenam
     setSummary('') // Show empty summary container immediately
 
     try {
-      const craftUrl = localStorage.getItem('craft_api_url')
-      const craftKey = localStorage.getItem('craft_api_key')
+      const { apiUrl: craftUrl, apiKey: craftKey } = getCraftConnection()
 
-      if (!craftUrl || !craftKey) {
-        throw new Error('Summarization requires Craft API credentials. Currently viewing demo graph. Connect your Craft workspace to use AI summarization.')
+      if (!craftUrl) {
+        throw new Error('Summarization requires a valid Craft API URL.')
       }
 
       console.log('Summarizing node:', {
@@ -111,7 +111,7 @@ export function NodePreview({ node, graphData, onClose, onNodeSelect, onTagRenam
           nodeId: node.id,
           nodeType: node.type,
           craftUrl,
-          craftKey,
+          ...(craftKey ? { craftKey } : {}),
         }),
       })
 

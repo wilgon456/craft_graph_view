@@ -107,7 +107,6 @@ export class CraftGraphFetcher {
 
     if (typeof window === 'undefined') {
       // direct mode (Bun tests, scripts) — call Craft API directly
-      if (!this.config.apiKey) throw new Error('API key required for direct mode');
       const directUrl = new URL(this.config.baseUrl + endpoint);
       Object.entries(params).forEach(([key, value]) => {
         directUrl.searchParams.append(key, value);
@@ -115,8 +114,10 @@ export class CraftGraphFetcher {
       url = directUrl.toString();
       headers = {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey}`,
       };
+      if (this.config.apiKey) {
+        headers['Authorization'] = `Bearer ${this.config.apiKey}`;
+      }
     } else {
       // browser mode — go through CORS proxy
       const proxyUrl = new URL('/api/craft' + endpoint, window.location.origin);
@@ -328,12 +329,13 @@ export class CraftGraphFetcher {
 
     if (typeof window === 'undefined') {
       // direct mode (Bun tests, scripts)
-      if (!this.config.apiKey) throw new Error('API key required for direct mode');
       url = this.config.baseUrl + endpoint;
       headers = {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey}`,
       };
+      if (this.config.apiKey) {
+        headers['Authorization'] = `Bearer ${this.config.apiKey}`;
+      }
     } else {
       // browser mode — go through CORS proxy
       const proxyUrl = new URL('/api/craft' + endpoint, window.location.origin);
@@ -608,8 +610,8 @@ export class CraftGraphFetcher {
 
     for (const location of builtInLocations) {
       const docsInLocation = Array.from(docToFolderMap.entries())
-        .filter(([_, fid]) => fid === location.id)
-        .map(([docId, _]) => docId);
+        .filter(([, fid]) => fid === location.id)
+        .map(([docId]) => docId);
 
       if (docsInLocation.length === 0) continue;
 
@@ -641,8 +643,8 @@ export class CraftGraphFetcher {
           folder.id === 'trash' || folder.id === 'templates') continue;
 
       const docsInFolder = Array.from(docToFolderMap.entries())
-        .filter(([_, fid]) => fid === folder.id)
-        .map(([docId, _]) => docId);
+        .filter(([, fid]) => fid === folder.id)
+        .map(([docId]) => docId);
 
       if (docsInFolder.length === 0) continue;
 
@@ -939,7 +941,7 @@ export class CraftGraphFetcher {
       }));
     }
     
-    let nodesMap = new Map(cachedGraphData.nodes.map(n => [n.id, { ...n }]));
+    const nodesMap = new Map(cachedGraphData.nodes.map(n => [n.id, { ...n }]));
     let linksArray = [...cachedGraphData.links];
     
     if (deleted.length > 0) {
@@ -1480,7 +1482,7 @@ export class CraftGraphFetcher {
     });
 
     // Start with cached data
-    let nodesMap = new Map(cachedGraphData.nodes.map(n => [n.id, { ...n }]));
+    const nodesMap = new Map(cachedGraphData.nodes.map(n => [n.id, { ...n }]));
     let linksArray = [...cachedGraphData.links];
 
     // Remove deleted documents

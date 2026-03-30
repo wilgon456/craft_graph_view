@@ -441,7 +441,7 @@ export const ForceGraph3DComponent = React.forwardRef<ForceGraph3DRef, ForceGrap
     spriteMapRef.current.set(node.id, sprite)
 
     return sprite
-  }, [colors, newYearMode, bloomMode, getBloomNodeColor, showLabels])
+  }, [colors, newYearMode, bloomMode, getBloomNodeColor, showLabels, SpriteText])
 
   // Update sprite colors when theme or selection changes
   // Also clean up sprites when showLabels is disabled
@@ -553,9 +553,6 @@ export const ForceGraph3DComponent = React.forwardRef<ForceGraph3DRef, ForceGrap
       const sizeZ = maxZ - minZ
       const maxSize = Math.max(sizeX, sizeY, sizeZ, 100) // Ensure minimum size
       
-      // Calculate ideal distance based on FOV (default 75 degrees)
-      // Using similar calculation as react-force-graph-3d's zoomToFit
-      const fov = 75
       const cameraZ = Math.max(maxSize * 1.5, 500)
       
       // Position camera to view the entire graph

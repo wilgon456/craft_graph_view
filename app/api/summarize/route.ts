@@ -21,7 +21,7 @@ interface SummarizeRequest {
   nodeId: string
   nodeType: 'document' | 'block' | 'tag' | 'folder'
   craftUrl: string
-  craftKey: string
+  craftKey?: string
 }
 
 /**
@@ -154,10 +154,10 @@ export async function POST(request: NextRequest) {
       nodeType: nodeType || 'missing',
     })
 
-    if (!nodeId || !craftUrl || !craftKey) {
+    if (!nodeId || !craftUrl) {
       console.error('Missing fields:', { nodeId: !!nodeId, craftUrl: !!craftUrl, craftKey: !!craftKey })
       return Response.json(
-        { error: 'Missing required fields: nodeId, craftUrl, or craftKey' },
+        { error: 'Missing required fields: nodeId or craftUrl' },
         { status: 400 }
       )
     }
@@ -180,8 +180,8 @@ export async function POST(request: NextRequest) {
     const blocksUrl = `${craftUrl}/blocks?id=${nodeId}&maxDepth=-1`
     const blocksResponse = await fetch(blocksUrl, {
       headers: {
-        'Authorization': `Bearer ${craftKey}`,
         'Content-Type': 'application/json',
+        ...(craftKey ? { Authorization: `Bearer ${craftKey}` } : {}),
       },
     })
 

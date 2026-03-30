@@ -3,7 +3,7 @@
  * Provides instant loading on subsequent visits.
  */
 
-import type { GraphData, GraphCache, DocumentMetadata } from './types';
+import type { GraphData, GraphCache } from './types';
 import { patchGraphDataForTagRename } from './tag-rename';
 
 const DB_NAME = 'graft-cache';

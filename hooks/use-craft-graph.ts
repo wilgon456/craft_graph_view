@@ -15,9 +15,7 @@ import {
   patchTagRenameInCache,
   requestPersistentStorage,
 } from "@/lib/graph"
-
-const STORAGE_KEY_URL = "craft_api_url"
-const STORAGE_KEY_KEY = "craft_api_key"
+import { getCraftApiKey, getCraftApiUrl } from "@/lib/craft-config"
 
 interface UseCraftGraphState {
   graphData: GraphData | null
@@ -57,10 +55,10 @@ export function useCraftGraph() {
     abortControllerRef.current = new AbortController()
     const signal = abortControllerRef.current.signal
     
-    const apiUrl = localStorage.getItem(STORAGE_KEY_URL)
-    const apiKey = localStorage.getItem(STORAGE_KEY_KEY)
+    const apiUrl = getCraftApiUrl()
+    const apiKey = getCraftApiKey()
     
-    if (!apiUrl || !apiKey) {
+    if (!apiUrl) {
       // Load demo graph when no credentials are configured
       try {
         setState(prev => ({
@@ -87,7 +85,7 @@ export function useCraftGraph() {
           error: null,
           isFromCache: false,
         }))
-      } catch (err) {
+      } catch {
         if (signal.aborted || isCancelledRef.current) return
         setState(prev => ({
           ...prev,
@@ -124,7 +122,7 @@ export function useCraftGraph() {
     }))
 
     try {
-      const fetcher = createFetcher(apiUrl, apiKey)
+      const fetcher = createFetcher(apiUrl, apiKey || undefined)
       
       // Build graph - the result includes both graph data and document metadata
       const result = await fetcher.buildGraphOptimized({
@@ -255,10 +253,10 @@ export function useCraftGraph() {
     abortControllerRef.current = new AbortController()
     const signal = abortControllerRef.current.signal
     
-    const apiUrl = localStorage.getItem(STORAGE_KEY_URL)
-    const apiKey = localStorage.getItem(STORAGE_KEY_KEY)
+    const apiUrl = getCraftApiUrl()
+    const apiKey = getCraftApiKey()
     
-    if (!apiUrl || !apiKey) {
+    if (!apiUrl) {
       return
     }
 
@@ -283,7 +281,7 @@ export function useCraftGraph() {
     }))
 
     try {
-      const fetcher = createFetcher(apiUrl, apiKey)
+      const fetcher = createFetcher(apiUrl, apiKey || undefined)
       
       const result = await fetcher.buildGraphIncrementalOptimized(
         cachedWithMetadata.documentMetadata,
@@ -376,7 +374,7 @@ export function useCraftGraph() {
                 progress: { current, total, message },
               }))
             },
-            onComplete: (finalGraphData: GraphData) => {
+            onComplete: () => {
               console.log('[Graph] Refresh complete')
               // State is set after buildGraphIncrementalOptimized returns
             },
@@ -421,7 +419,7 @@ export function useCraftGraph() {
     })
 
     // patch IndexedDB cache in background
-    const apiUrl = localStorage.getItem(STORAGE_KEY_URL)
+    const apiUrl = getCraftApiUrl()
     if (apiUrl) {
       patchTagRenameInCache(apiUrl, renameMap).catch(err => {
         console.warn('[Graph] Failed to patch cache after tag rename:', err)

@@ -16,6 +16,7 @@ import {
   type TagRenameProgress,
   type TagRenameResult,
 } from "@/lib/graph"
+import { getCraftConnection } from "@/lib/craft-config"
 
 type DialogPhase = "input" | "confirm" | "executing" | "done" | "error"
 
@@ -55,10 +56,9 @@ export function TagRenameDialog({ node, graphData, onClose, onRenameComplete }: 
     const trimmed = newTagPath.trim()
     if (!preview) return
 
-    const apiUrl = typeof window !== "undefined" ? localStorage.getItem("craft_api_url") : null
-    const apiKey = typeof window !== "undefined" ? localStorage.getItem("craft_api_key") : null
-    if (!apiUrl || !apiKey) {
-      setErrorMessage("No Craft API credentials found. Please connect your workspace.")
+    const { apiUrl, apiKey } = getCraftConnection()
+    if (!apiUrl) {
+      setErrorMessage("No Craft API URL found.")
       setPhase("error")
       return
     }
@@ -67,7 +67,7 @@ export function TagRenameDialog({ node, graphData, onClose, onRenameComplete }: 
     abortRef.current = new AbortController()
 
     try {
-      const fetcher = createFetcher(apiUrl, apiKey)
+      const fetcher = createFetcher(apiUrl, apiKey || undefined)
       const res = await executeTagRename(
         fetcher,
         oldTagPath,
@@ -203,7 +203,7 @@ export function TagRenameDialog({ node, graphData, onClose, onRenameComplete }: 
                 <IconAlertTriangle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
                 <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
                   This will modify block content directly in your Craft documents. The operation
-                  cannot be undone from Graft. If you need to revert, use Craft's own version history.
+                  cannot be undone from Graft. If you need to revert, use Craft&apos;s own version history.
                 </p>
               </div>
             </>

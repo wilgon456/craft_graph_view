@@ -55,12 +55,19 @@ function isAllowedCraftUrl(craftUrl: string): boolean {
   }
 }
 
-function getCredentials(request: NextRequest): { craftUrl: string; craftKey: string } | null {
+function getCredentials(request: NextRequest): { craftUrl: string; craftKey?: string } | null {
   const craftUrl = request.headers.get('x-craft-url')
-  const craftKey = request.headers.get('x-craft-key')
-  if (!craftUrl || !craftKey) return null
+  const craftKey = request.headers.get('x-craft-key') || undefined
+  if (!craftUrl) return null
   if (!isAllowedCraftUrl(craftUrl)) return null
   return { craftUrl, craftKey }
+}
+
+function buildCraftHeaders(craftKey?: string): HeadersInit {
+  return {
+    'Content-Type': 'application/json',
+    ...(craftKey ? { Authorization: `Bearer ${craftKey}` } : {}),
+  }
 }
 
 function buildTargetUrl(request: NextRequest, craftUrl: string, path: string[]): string {
@@ -84,7 +91,7 @@ export async function GET(
   const credentials = getCredentials(request)
   if (!credentials) {
     return Response.json(
-      { error: 'Missing or invalid Craft API credentials' },
+      { error: 'Missing or invalid Craft API URL' },
       { status: 401 }
     )
   }
@@ -102,10 +109,7 @@ export async function GET(
 
   try {
     const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${craftKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: buildCraftHeaders(craftKey),
     })
 
     if (!response.ok) {
@@ -170,7 +174,7 @@ async function handleWrite(
   const credentials = getCredentials(request)
   if (!credentials) {
     return Response.json(
-      { error: 'Missing or invalid Craft API credentials' },
+      { error: 'Missing or invalid Craft API URL' },
       { status: 401 }
     )
   }
@@ -191,10 +195,7 @@ async function handleWrite(
     const body = await request.text()
     const response = await fetch(url, {
       method,
-      headers: {
-        'Authorization': `Bearer ${craftKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: buildCraftHeaders(craftKey),
       body,
     })
 

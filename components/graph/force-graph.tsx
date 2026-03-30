@@ -100,7 +100,6 @@ export const ForceGraph = React.forwardRef<ForceGraphRef, ForceGraphProps>(
   const graphRef = React.useRef<any>(null)
   const [theme, setTheme] = React.useState<ThemeMode>(() => getInitialTheme())
   const [hoveredNode, setHoveredNode] = React.useState<GraphNode | null>(null)
-  const [zoomLevel, setZoomLevel] = React.useState<number>(1)
   const [muteOpacity, setMuteOpacity] = React.useState<number>(1)
   const animationFrameRef = React.useRef<number | null>(null)
   const currentOpacityRef = React.useRef<number>(1)
@@ -393,13 +392,12 @@ export const ForceGraph = React.forwardRef<ForceGraphRef, ForceGraphProps>(
       onNodeHover={handleNodeHover}
       onNodeClick={handleNodeClick}
       onBackgroundClick={handleBackgroundClick}
-      onZoom={(transform: any) => {
+      onZoom={() => {
         // Defer state update to avoid updating during render
         if (zoomUpdateFrameRef.current !== null) {
           cancelAnimationFrame(zoomUpdateFrameRef.current)
         }
         zoomUpdateFrameRef.current = requestAnimationFrame(() => {
-          setZoomLevel(transform.k)
           zoomUpdateFrameRef.current = null
         })
       }}

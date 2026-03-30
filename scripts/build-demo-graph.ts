@@ -374,8 +374,8 @@ async function buildDemoGraph(): Promise<GraphData> {
 
   for (const folder of allFolders) {
     const docsInFolder = Array.from(docToFolderMap.entries())
-      .filter(([_, fid]) => fid === folder.id)
-      .map(([docId, _]) => docId);
+      .filter(([, fid]) => fid === folder.id)
+      .map(([docId]) => docId);
 
     if (docsInFolder.length === 0) continue;
 
