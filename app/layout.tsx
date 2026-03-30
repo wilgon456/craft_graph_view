@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { Header } from "@/components/header";
@@ -20,12 +20,6 @@ export const metadata: Metadata = {
   title: "hanjun craft graph view",
   description: "Visualize your Craft document connections as an interactive graph",
   manifest: "/manifest.webmanifest",
-  themeColor: "#FCC800",
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    viewportFit: "cover",
-  },
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -52,6 +46,13 @@ export const metadata: Metadata = {
   other: {
     "msapplication-TileColor": "#FCC800",
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#FCC800",
 };
 
 export default function RootLayout({
