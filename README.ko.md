@@ -43,7 +43,7 @@ bun install
 bun dev
 ```
 
-**http://localhost:3000**을 엽니다. 설정한 Craft 자료를 자동으로 사용합니다. 본인의 자료를 사용하려면 `lib/craft-config.ts`를 수정하세요. `localStorage`에 저장된 `craft_api_url`은 기본값보다 우선할 수 있습니다.
+[http://localhost:3000](http://localhost:3000)을 엽니다. 설정한 Craft 자료를 자동으로 사용합니다. 본인의 자료를 사용하려면 `lib/craft-config.ts`를 수정하세요. `localStorage`에 저장된 `craft_api_url`은 기본값보다 우선할 수 있습니다.
 
 기존 npm 대체 실행 방법도 유지합니다.
 
